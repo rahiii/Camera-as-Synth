@@ -10,7 +10,7 @@ This project records a short video from the webcam, extracts motion between fram
 
 **Mac/Linux:**
 ```bash
-python3 -m venv venv
+python3.10 -m venv venv
 source venv/bin/activate
 ```
 
@@ -24,7 +24,7 @@ venv\Scripts\activate
 
 ### 2. Install required packages
 ```bash
-pip install opencv-python numpy scipy sounddevice matplotlib
+pip install opencv-contrib-python numpy mediapipe
 ```
 
 ---
@@ -36,16 +36,9 @@ python main.py
 
 ---
 
-## What the program does
-- Opens your webcam and records ~4 seconds of video  
-- Extracts motion between frames  
-- Converts the motion into sound  
-- Saves:  
-  - **motion_sonification.wav** (audio)  
-  - **motion_plot.png** (motion graph)
-
----
-
-## Output files
-- `motion_sonification.wav` — audio generated from your movement  
-- `motion_plot.png` — plot of motion over time  
+## Config
+### To use a Video File instead of Webcam:
+**Edit config.py:**
+```bash
+INPUT_SOURCE = "dance.mp4"
+```
