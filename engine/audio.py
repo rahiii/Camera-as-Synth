@@ -5,7 +5,11 @@ import soundfile as sf
 import scipy.ndimage
 import os
 import config
-from moviepy import VideoFileClip, AudioFileClip
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend
+import matplotlib.pyplot as plt
+from moviepy.editor import VideoFileClip, AudioFileClip
+from moviepy.video.fx.all import speedx
 
 class AudioEngine:
     def __init__(self):
@@ -25,7 +29,6 @@ class AudioEngine:
         num_octaves = int(2 + (richness * 3))
         freq_scale = self.n_fft * self.sr_inv
 
-        # Pre-compute all frequencies
         for octave in range(num_octaves):
             mult = 2 ** octave
             for f in active_scale:
@@ -52,13 +55,11 @@ class AudioEngine:
         if grain_len >= n:
             return audio
 
-        # Extract grains
         grain_starts = np.arange(0, n - grain_len, step)
         grains = np.array([audio[i:i+grain_len] for i in grain_starts])
         window = np.hanning(grain_len)
         grains *= window
 
-        # Shuffle and overlap-add
         np.random.shuffle(grains)
         out = np.zeros(n, dtype=audio.dtype)
         for i, grain in enumerate(grains):
@@ -114,7 +115,6 @@ class AudioEngine:
         return (y / (max_val + 1e-6)) * 0.9 if max_val > 0 else y
     
     def _harmonic_arpeggios(self, duration, scale, motion_curve):
-        """Harmonic arpeggios for raise_arms gesture"""
         n = int(duration * self.sr)
         t = np.linspace(0.0, duration, n, endpoint=False)
         two_pi = 2.0 * np.pi
@@ -135,7 +135,6 @@ class AudioEngine:
         return (y / (max_val + 1e-6)) * 0.9 if max_val > 0 else y
     
     def _doppler_fm_synth(self, duration, scale, motion_curve, spin_intensity):
-        """Doppler FM for spin gesture"""
         n = int(duration * self.sr)
         t = np.linspace(0.0, duration, n, endpoint=False)
         base_freq = scale[len(scale)//2] if scale else 220.0
@@ -151,7 +150,6 @@ class AudioEngine:
         return (y / (max_val + 1e-6)) * 0.9 if max_val > 0 else y
 
     def _classify_mode(self, motion_hist, pose_hist, gesture=None):
-        # Gesture-based mode selection
         if gesture:
             gesture_map = {
                 "wave": "granular",
@@ -172,7 +170,6 @@ class AudioEngine:
         var_m = np.var(m)
         mean_m = np.mean(m)
 
-        # Vectorized spread calculation
         all_spreads = []
         torso_deltas = []
         prev_torsos = None
@@ -181,7 +178,6 @@ class AudioEngine:
             if not frame:
                 continue
                 
-            # Extract spreads
             frame_arr = np.array(frame)
             spreads = np.abs(np.clip(frame_arr[:, 2], 0, 1) - np.clip(frame_arr[:, 0], 0, 1))
             all_spreads.extend(spreads.tolist())
@@ -218,7 +214,6 @@ class AudioEngine:
         if not spectral_hist:
             raise RuntimeError("No spectral data collected for audio synthesis.")
 
-        # 1. Build smoothed spectral layers
         spectral_array = np.array([s for s in spectral_hist]).transpose(1, 2, 0)  # (3, N_BINS, frames)
         sigmas = [(2, 2), (1, 2), (0.5, 1)]
         S_layers = [
@@ -227,7 +222,6 @@ class AudioEngine:
         ]
         S_low, S_mid, S_high = S_layers
 
-        # 2. Per-frame masking & shaping
         n_frames = S_low.shape[1]
         factors_base = np.array([1.2, 1.0, 0.3])
         
@@ -249,16 +243,16 @@ class AudioEngine:
                 S_mid[:, t] *= (0.9 + 0.3 * s_avg)
                 S_low[:, t] *= (1.1 - 0.5 * h_avg)
 
-        # 3. Collapse to final spectrogram, Griffin-Lim, stretch to time
         S_total = np.log1p(sum([S_low, S_mid, S_high]) + 1e-6)
         if S_total.max() > 0:
             S_total = S_total / S_total.max() * 60.0
+        
+        self.final_spectrogram = S_total.copy()
 
         raw = librosa.griffinlim(S_total, n_fft=self.n_fft, hop_length=config.HOP_LEN)
         curr_dur = len(raw) * self.sr_inv
         audio = librosa.effects.time_stretch(raw, rate=curr_dur / total_time) if total_time > 0 else raw
 
-        # 4. Mode selection & additional synthesis
         gesture = getattr(collector, 'current_gesture', None)
         mode = self._classify_mode(motion_hist, pose_hist, gesture)
 
@@ -268,7 +262,6 @@ class AudioEngine:
             np.clip(motion_hist, 0, 1)
         )
 
-        # Recalculate torso stats for FM parameters (vectorized)
         torso_deltas = []
         prev = None
         for frame in pose_hist:
@@ -281,7 +274,6 @@ class AudioEngine:
             prev = cur
         torso_act = np.mean(torso_deltas) if torso_deltas else 0.0
 
-        # Vectorized spread calculation
         if pose_hist:
             spreads = [abs(np.clip(f[2], 0, 1) - np.clip(f[0], 0, 1)) for frame in pose_hist for f in frame]
             avg_spread = np.mean(spreads) if spreads else 0.3
@@ -327,12 +319,52 @@ class AudioEngine:
 
         sf.write("temp_audio.wav", final, self.sr)
         return "temp_audio.wav"
+    
+    def save_spectrogram(self, output_path):
+        if not hasattr(self, 'final_spectrogram') or self.final_spectrogram is None:
+            return None
+        
+        S = self.final_spectrogram
+        
+        fig, ax = plt.subplots(figsize=(12, 6))
+        im = ax.imshow(S, aspect='auto', origin='lower', cmap='viridis', interpolation='bilinear')
+        plt.colorbar(im, ax=ax, label='Magnitude (dB)')
+        ax.set_xlabel('Time (frames)')
+        ax.set_ylabel('Frequency (bins)')
+        ax.set_title('Motion-to-Sound Spectrogram')
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=100, bbox_inches='tight')
+        plt.close(fig)
+        
+        return output_path
 
     def merge_video(self, video_path, audio_path, output_path, total_time):
         if not os.path.exists(video_path):
             raise FileNotFoundError(f"Video file not found: {video_path}")
         if not os.path.exists(audio_path):
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
-        clip_v = VideoFileClip(video_path).with_speed_scaled(final_duration=total_time)
+        
+        clip_v = VideoFileClip(video_path)
         clip_a = AudioFileClip(audio_path)
-        clip_v.with_audio(clip_a).write_videofile(output_path, codec='libx264', audio_codec='aac', logger=None)
+        
+        # Adjust video speed to match audio duration
+        video_duration = clip_v.duration
+        if video_duration > 0 and abs(video_duration - total_time) > 0.1:  # Only adjust if significantly different
+            speed_factor = video_duration / total_time
+            clip_v = speedx(clip_v, speed_factor)
+        
+        # Ensure video duration matches exactly
+        if clip_v.duration > total_time:
+            clip_v = clip_v.subclip(0, total_time)
+        elif clip_v.duration < total_time:
+            # If video is shorter, loop it or extend last frame (simple: just use as is)
+            pass
+        
+        # Combine video and audio
+        final_clip = clip_v.set_audio(clip_a)
+        final_clip.write_videofile(output_path, codec='libx264', audio_codec='aac', logger=None, verbose=False)
+        
+        # Clean up
+        clip_v.close()
+        clip_a.close()
+        final_clip.close()

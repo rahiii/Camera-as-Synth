@@ -25,3 +25,6 @@ CIRCLE_OF_FIFTHS = [
 ]
 ENABLE_VISUAL_EFFECTS = True
 ENABLE_ENSEMBLE = False
+# Max video duration in seconds for web processing (None = no limit)
+MAX_VIDEO_DURATION_WEB = 10.0  # Trim videos to 10 seconds on web
+MAX_VIDEO_DURATION_LOCAL = None  # No limit for local processing

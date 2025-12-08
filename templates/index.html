@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera-as-Synth</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <canvas id="flow-canvas"></canvas>
+    <div class="cursor"></div>
+    <div class="cursor-follower"></div>
+    
+    <div class="container">
+        <header class="header">
+            <div class="header-content">
+                <div class="title-wrapper">
+                    <h1 class="title-main">
+                        <span class="title-line">Camera</span>
+                        <span class="title-separator">-</span>
+                        <span class="title-line">as</span>
+                        <span class="title-separator">-</span>
+                        <span class="title-line">Synth</span>
+                    </h1>
+                </div>
+                <p class="subtitle">Transform your movement into sound</p>
+            </div>
+        </header>
+
+        <div class="main-content" id="main-content">
+            <div class="upload-section">
+                <div class="options-tabs">
+                    <button class="option-tab active" onclick="switchOption('upload')">Upload Video</button>
+                    <button class="option-tab" onclick="switchOption('samples')">Sample Videos</button>
+                </div>
+                
+                <!-- Upload Option -->
+                <div id="upload-option" class="option-content active">
+                    <div class="upload-area" id="upload-area">
+                        <div class="upload-icon-wrapper">
+                            <div class="upload-icon">
+                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="17 8 12 3 7 8"></polyline>
+                                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                                </svg>
+                            </div>
+                            <div class="flow-particles" id="flow-particles"></div>
+                        </div>
+                        <p class="upload-text">Drag and drop a video file</p>
+                        <p class="upload-hint">or</p>
+                        <label for="file-input" class="btn btn-primary">
+                            <span>Choose File</span>
+                        </label>
+                        <input type="file" id="file-input" accept="video/*" style="display: none;">
+                    </div>
+                    
+                    <div id="upload-preview" class="preview-container" style="display: none;">
+                        <div class="preview-wrapper">
+                            <div class="video-container-preview">
+                                <video id="upload-video-preview" controls></video>
+                            </div>
+                            <button class="btn btn-primary btn-process" onclick="processUpload()">
+                                <span>Process Video</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Sample Videos Option -->
+                <div id="samples-option" class="option-content">
+                    <div class="samples-grid" id="samples-grid">
+                        <div class="samples-loading">Loading samples...</div>
+                    </div>
+                </div>
+                
+                <div id="upload-status" class="status"></div>
+            </div>
+        </div>
+
+        <!-- Progress Section -->
+        <div id="progress-section" class="progress-section" style="display: none;">
+            <div class="progress-content">
+                <div class="hud-indicator">
+                    <span class="hud-label">SYSTEM</span>
+                    <span class="hud-value">[LOAD]</span>
+                </div>
+                <h3 class="progress-title">Processing</h3>
+                <div class="progress-bar-wrapper">
+                    <div class="progress-bar">
+                        <div id="progress-fill" class="progress-fill"></div>
+                    </div>
+                </div>
+                <p id="progress-text" class="progress-text">Analyzing motion...</p>
+            </div>
+        </div>
+
+        <!-- Result Section -->
+        <div id="result-section" class="result-section" style="display: none;">
+            <div class="result-header">
+                <div class="hud-indicator">
+                    <span class="hud-label">STATUS</span>
+                    <span class="hud-value">[COMPLETE]</span>
+                </div>
+                <h3 class="result-title">Processing Complete</h3>
+                <p class="result-subtitle">Your motion-synthesized video is ready.</p>
+                <div id="result-message" class="result-message" style="display: none;"></div>
+            </div>
+            
+            <div class="result-content">
+                <div class="video-result result-card">
+                    <h4 class="result-card-title">Final Video</h4>
+                    <div class="video-wrapper">
+                        <video id="result-video" controls></video>
+                    </div>
+                    <a id="download-link" href="#" class="btn btn-success" download>
+                        <span>Download Video</span>
+                    </a>
+                </div>
+                
+                <div class="spectrogram-result result-card">
+                    <h4 class="result-card-title">Motion Spectrogram</h4>
+                    <div class="spectrogram-wrapper">
+                        <img id="result-spectrogram" alt="Spectrogram" />
+                    </div>
+                </div>
+            </div>
+            
+            <div class="result-actions">
+                <button onclick="resetAndUploadAnother()" class="btn btn-primary">
+                    <span>Upload Another Video</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

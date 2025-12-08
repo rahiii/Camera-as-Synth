@@ -1,25 +1,29 @@
-# Virtual environment
-venv/
-env/
-ENV/
-
-# Python cache
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-
-# Output files
+.Python
+venv/
+env/
+ENV/
+*.mp4
+*.avi
 *.wav
-*.png
-
-# IDE
+temp_*
+uploads/*
+outputs/*
+.DS_Store
+*.log
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
-# OS
-.DS_Store
-Thumbs.db
+# Keep directory structure but ignore contents
+!uploads/.gitkeep
+!outputs/.gitkeep
 
+# Keep sample videos and pose model
+!Samples/*.mp4
+!pose_landmarker_full.task

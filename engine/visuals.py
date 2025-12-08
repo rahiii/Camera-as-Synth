@@ -30,7 +30,6 @@ class VisualEngine:
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # --- Segmentation ---
         res = self.mp_seg.process(rgb)
         mask = np.zeros((self.h, self.w), dtype=np.float32)
         cx, cy = 0.5, 0.5

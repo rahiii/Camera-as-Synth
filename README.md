@@ -1,6 +1,6 @@
 # Camera-as-Synth: Motion-Driven Spectral Sonification Using Optical Flow
 
-A system that converts human movement into sound by treating video motion as input to a spectral synthesizer. A short video or webcam feed is analyzed to extract body motion, and each frame of movement is transformed into a slice of a spectrogram.
+A system that converts human movement into sound by treating video motion as input to a spectral synthesizer. Upload a video file to analyze body motion, and each frame of movement is transformed into a slice of a spectrogram.
 
 **Motion direction shapes frequency content, motion magnitude determines amplitude, and the resulting time:frequency matrix is resynthesized into audio.** The output is a sound texture tightly coupled to how the performer moves.
 
@@ -27,7 +27,7 @@ venv\Scripts\activate
 ### 2. Install required packages
 
 ```bash
-pip install opencv-python numpy mediapipe librosa soundfile scipy moviepy
+pip install -r requirements.txt
 ```
 
 **Required packages:**
@@ -38,6 +38,9 @@ pip install opencv-python numpy mediapipe librosa soundfile scipy moviepy
 - `soundfile` - Audio file I/O
 - `scipy` - Scientific computing (filtering, etc.)
 - `moviepy` - Video/audio merging
+- `Flask` - Web framework
+- `gunicorn` - WSGI server for production
+- `matplotlib` - Plotting and spectrogram visualization
 
 ### 3. Download pose model
 
@@ -45,23 +48,47 @@ The `pose_landmarker_full.task` file must be in the project root directory. If m
 
 ## Usage
 
-### Run the program
+### Web Interface
+
+**🌐 Live Website**: [https://camera-as-synth.onrender.com/](https://camera-as-synth.onrender.com/)
+
+The project includes a web interface hosted on Render. You can also run it locally:
+
+1. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Run the web server:**
+   ```bash
+   python app.py
+   ```
+
+3. **Open your browser:**
+   ```
+   http://localhost:5000
+   ```
+
+4. **Use the interface:**
+   - Drag and drop a video file or click to browse
+   - Click "Process Video" to generate motion-synthesized audio
+   - View the result and download your video
+   - **Note**: On the web version, videos are automatically trimmed to 10 seconds for processing. For full-length videos, run locally.
+
+### Command Line Interface
 
 ```bash
 python main.py
 ```
 
 When prompted:
-- **Enter video path**: Type path to video file (e.g., `Samples/dance.mp4`) or press Enter for webcam
-- **Press 'q'**: Stop recording early (webcam mode)
+- **Enter video path**: Type path to video file (e.g., `Samples/dance.mp4`)
 
 ### Configuration
 
 Edit `config.py` to customize:
 
 ```python
-INPUT_SOURCE = None  # Set to video path or None for webcam
-CAMERA_ID = 0        # Webcam device ID
 WIDTH = 640          # Video width
 HEIGHT = 480         # Video height
 SHOW_SKELETON = False  # Display pose skeleton overlay
@@ -76,26 +103,42 @@ SHOW_SKELETON = False  # Display pose skeleton overlay
 - **`temp_video.avi`** - Temporary video file (deleted after processing)
 - **`temp_audio.wav`** - Temporary audio file (deleted after processing)
 
+## Web Deployment
+
+The website is deployed on Render.com. The app automatically detects web deployment and limits video processing to 10 seconds to work within free tier resource constraints. For full-length video processing, run the application locally.
+
 ## Project Structure
 
 ```
-video_sonification/
-├── main.py                 # Main entry point
+Camera-as-Synth/
+├── app.py                  # Flask web application
+├── main.py                 # CLI entry point
 ├── config.py              # Configuration settings
+├── requirements.txt       # Python dependencies
+├── Procfile               # Deployment config (Render)
+├── render.yaml            # Render deployment config
+├── runtime.txt            # Python version specification
 ├── pose_landmarker_full.task  # MediaPipe pose model
+├── templates/
+│   └── index.html         # Web interface
+├── static/
+│   ├── style.css          # Styles
+│   └── script.js          # Frontend JavaScript
 ├── engine/
 │   ├── audio.py           # Audio synthesis engine
 │   ├── visuals.py         # Visual processing (segmentation, flow)
 │   ├── pose.py            # Pose detection
 │   └── data.py            # Data collection
-└── final_performance.mp4  # Output file (generated)
+├── Samples/               # Sample videos for web interface
+├── uploads/               # Temporary upload folder
+└── outputs/               # Generated videos
 ```
 
 ## How It Works
 
 ### Pipeline
 
-1. **Video Capture**: Captures from webcam or video file using OpenCV
+1. **Video Capture**: Processes uploaded video files using OpenCV
 
 2. **Body + Motion Extraction**: 
    - **MediaPipe Selfie Segmentation**: Isolates human from background to focus analysis on body movement
