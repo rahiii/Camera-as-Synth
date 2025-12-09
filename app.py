@@ -1,6 +1,7 @@
 import cv2
 import os
 import uuid
+import numpy as np
 import config
 from flask import Flask, render_template, request, jsonify, send_file
 from werkzeug.utils import secure_filename
@@ -61,10 +62,6 @@ def trim_video_to_duration(video_path, max_duration, output_path):
     cap.release()
     out.release()
     return output_path
-
-def is_web_deployment():
-    """Check if running on web deployment (Render, Heroku, etc.)"""
-    return os.environ.get('RENDER') is not None or os.environ.get('DYNO') is not None
 
 def process_video(video_path, output_id, max_duration=None):
     if not os.path.exists(config.POSE_MODEL_PATH):
@@ -161,6 +158,11 @@ def process_video(video_path, output_id, max_duration=None):
     spectrogram_path = os.path.join(app.config['OUTPUT_FOLDER'], f"spectrogram_{output_id}.png")
     audio_synth.save_spectrogram(spectrogram_path)
     
+    # Save spectrogram data for interactive visualization
+    spectrogram_data_path = os.path.join(app.config['OUTPUT_FOLDER'], f"spectrogram_data_{output_id}.npy")
+    if hasattr(audio_synth, 'final_spectrogram') and audio_synth.final_spectrogram is not None:
+        np.save(spectrogram_data_path, audio_synth.final_spectrogram)
+    
     try:
         os.remove(temp_video_path)
         os.remove(wav_path)
@@ -210,8 +212,8 @@ def process_sample():
     
     output_id = str(uuid.uuid4())
     
-    # Determine max duration based on deployment
-    max_duration = config.MAX_VIDEO_DURATION_WEB if is_web_deployment() else config.MAX_VIDEO_DURATION_LOCAL
+    # Always use local max duration (no web trimming)
+    max_duration = config.MAX_VIDEO_DURATION_LOCAL
     
     # Check video duration before processing
     cap_check = cv2.VideoCapture(filepath)
@@ -261,17 +263,8 @@ def upload_file():
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], f"{output_id}_{filename}")
     file.save(filepath)
     
-    # Check file size (warn if too large for free tier)
-    file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
-    if file_size_mb > 50:
-        try:
-            os.remove(filepath)
-        except:
-            pass
-        return jsonify({'error': f'File too large ({file_size_mb:.1f}MB). Free tier supports files up to 50MB. Please use a smaller video or upgrade your plan.'}), 400
-    
-    # Determine max duration based on deployment
-    max_duration = config.MAX_VIDEO_DURATION_WEB if is_web_deployment() else config.MAX_VIDEO_DURATION_LOCAL
+    # Always use local max duration (no web trimming)
+    max_duration = config.MAX_VIDEO_DURATION_LOCAL
     
     # Check video duration before processing
     cap_check = cv2.VideoCapture(filepath)
@@ -332,6 +325,42 @@ def serve_spectrogram(output_id):
         return jsonify({'error': 'Spectrogram not found'}), 404
     
     return send_file(filepath, mimetype='image/png')
+
+@app.route('/spectrogram_data/<output_id>')
+def serve_spectrogram_data(output_id):
+    """Serve spectrogram data as JSON for interactive visualization"""
+    filename = f"spectrogram_data_{output_id}.npy"
+    filepath = os.path.join(app.config['OUTPUT_FOLDER'], filename)
+    
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'Spectrogram data not found'}), 404
+    
+    try:
+        spectrogram = np.load(filepath)
+        # Convert to list and normalize for JSON
+        # Downsample if too large to reduce transfer size
+        max_width = 1000
+        max_height = 500
+        
+        if spectrogram.shape[1] > max_width:
+            step_x = spectrogram.shape[1] // max_width
+            spectrogram = spectrogram[:, ::step_x]
+        
+        if spectrogram.shape[0] > max_height:
+            step_y = spectrogram.shape[0] // max_height
+            spectrogram = spectrogram[::step_y, :]
+        
+        # Convert to list format
+        data = {
+            'data': spectrogram.tolist(),
+            'shape': list(spectrogram.shape),
+            'min': float(spectrogram.min()),
+            'max': float(spectrogram.max())
+        }
+        
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/sample_preview/<path:filename>')
 def serve_sample_preview(filename):

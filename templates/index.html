@@ -121,7 +121,11 @@
                 <div class="spectrogram-result result-card">
                     <h4 class="result-card-title">Motion Spectrogram</h4>
                     <div class="spectrogram-wrapper">
-                        <img id="result-spectrogram" alt="Spectrogram" />
+                        <div class="spectrogram-container">
+                            <canvas id="result-spectrogram-canvas"></canvas>
+                            <div id="spectrogram-indicator" class="spectrogram-indicator"></div>
+                            <div id="spectrogram-loading" class="spectrogram-loading">Loading spectrogram...</div>
+                        </div>
                     </div>
                 </div>
             </div>

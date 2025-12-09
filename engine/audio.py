@@ -8,6 +8,18 @@ import config
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend
 import matplotlib.pyplot as plt
+
+# Ensure ffmpeg is available via imageio-ffmpeg (downloads binary if needed)
+try:
+    import imageio_ffmpeg
+    # This will download ffmpeg binary if not already present
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    # Set environment variable so moviepy can find it
+    os.environ['IMAGEIO_FFMPEG_EXE'] = ffmpeg_exe
+except Exception as e:
+    print(f"Warning: Could not initialize ffmpeg via imageio-ffmpeg: {e}")
+    print("Please install ffmpeg system-wide or ensure imageio-ffmpeg can download it.")
+
 from moviepy.editor import VideoFileClip, AudioFileClip
 from moviepy.video.fx.all import speedx
 

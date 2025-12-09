@@ -8,6 +8,21 @@ The final result is an audiovisual piece: motion-visualized video paired with mo
 
 **Project Documentation**: [Google Doc](https://docs.google.com/document/d/1l9QHwBkSb-fY-Y4fzU58IRbZmelc7PBlWYZpyWMjXnU/edit?usp=sharing)
 
+## Get the code (local only)
+
+1) Open a terminal (macOS/Linux) or PowerShell (Windows).
+2) If `git` is not installed:
+   - macOS: `xcode-select --install`
+   - Windows: install from https://git-scm.com/download/win and restart PowerShell.
+3) Clone:
+```bash
+git clone https://github.com/rahiii/Camera-as-Synth.git
+cd Camera-as-Synth
+```
+If you prefer a zip, download from GitHub, unzip, then `cd` into the folder.
+
+If you have sample videos from Google Drive, place them in `Samples/` (or use the provided ones already in `Samples/`).
+
 ## Installation
 
 ### 1. Create and activate virtual environment
@@ -31,6 +46,7 @@ pip install -r requirements.txt
 ```
 
 **Required packages:**
+- `Flask` - Web framework (for local web interface)
 - `opencv-python` - Video processing and optical flow
 - `numpy` - Numerical operations
 - `mediapipe` - Pose detection and segmentation
@@ -38,8 +54,6 @@ pip install -r requirements.txt
 - `soundfile` - Audio file I/O
 - `scipy` - Scientific computing (filtering, etc.)
 - `moviepy` - Video/audio merging
-- `Flask` - Web framework
-- `gunicorn` - WSGI server for production
 - `matplotlib` - Plotting and spectrogram visualization
 
 ### 3. Download pose model
@@ -47,33 +61,6 @@ pip install -r requirements.txt
 The `pose_landmarker_full.task` file must be in the project root directory. If missing, download it from [MediaPipe Pose Solutions](https://developers.google.com/mediapipe/solutions/vision/pose_landmarker).
 
 ## Usage
-
-### Web Interface
-
-**🌐 Live Website**: [https://camera-as-synth.onrender.com/](https://camera-as-synth.onrender.com/)
-
-The project includes a web interface hosted on Render. You can also run it locally:
-
-1. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **Run the web server:**
-   ```bash
-   python app.py
-   ```
-
-3. **Open your browser:**
-   ```
-   http://localhost:5000
-   ```
-
-4. **Use the interface:**
-   - Drag and drop a video file or click to browse
-   - Click "Process Video" to generate motion-synthesized audio
-   - View the result and download your video
-   - **Note**: On the web version, videos are automatically trimmed to 10 seconds for processing. For full-length videos, run locally.
 
 ### Command Line Interface
 
@@ -83,6 +70,20 @@ python main.py
 
 When prompted:
 - **Enter video path**: Type path to video file (e.g., `Samples/dance.mp4`)
+- **Press Enter**: Use webcam as input source
+
+### Local Web Interface (runs only on your machine)
+
+```bash
+python app.py
+```
+
+Then open in your browser:
+```
+http://localhost:5000
+```
+
+You can upload a video, use sample videos, view/download the processed result, and interact with the spectrogram (click/drag to scrub playback).
 
 ### Configuration
 
@@ -103,35 +104,28 @@ SHOW_SKELETON = False  # Display pose skeleton overlay
 - **`temp_video.avi`** - Temporary video file (deleted after processing)
 - **`temp_audio.wav`** - Temporary audio file (deleted after processing)
 
-## Web Deployment
-
-The website is deployed on Render.com. The app automatically detects web deployment and limits video processing to 10 seconds to work within free tier resource constraints. For full-length video processing, run the application locally.
-
 ## Project Structure
 
 ```
 Camera-as-Synth/
-├── app.py                  # Flask web application
 ├── main.py                 # CLI entry point
+├── app.py                  # Local Flask web application
 ├── config.py              # Configuration settings
 ├── requirements.txt       # Python dependencies
-├── Procfile               # Deployment config (Render)
-├── render.yaml            # Render deployment config
-├── runtime.txt            # Python version specification
 ├── pose_landmarker_full.task  # MediaPipe pose model
 ├── templates/
-│   └── index.html         # Web interface
+│   └── index.html         # Web interface template
 ├── static/
-│   ├── style.css          # Styles
-│   └── script.js          # Frontend JavaScript
+│   ├── style.css          # Web interface styles
+│   └── script.js          # Web interface JavaScript
 ├── engine/
 │   ├── audio.py           # Audio synthesis engine
 │   ├── visuals.py         # Visual processing (segmentation, flow)
 │   ├── pose.py            # Pose detection
 │   └── data.py            # Data collection
-├── Samples/               # Sample videos for web interface
+├── Samples/               # Sample videos
 ├── uploads/               # Temporary upload folder
-└── outputs/               # Generated videos
+└── outputs/               # Generated videos and spectrograms
 ```
 
 ## How It Works
@@ -184,3 +178,31 @@ The system automatically selects synthesis modes based on motion patterns and de
 - **Harmonic**: Raise-arms gestures generate harmonic arpeggios
 - **Doppler FM**: Spin gestures create frequency-shifted effects
 - **Ambient**: Low motion, stillness produces ambient textures
+
+## Troubleshooting
+
+### FFmpeg Not Found Error
+
+If you encounter `RuntimeError: No ffmpeg exe could be found`:
+
+- The `imageio-ffmpeg` package should automatically download ffmpeg binaries on first import
+- Try running your script again - it should download ffmpeg automatically
+- If it still fails, ensure `imageio-ffmpeg` is installed: `pip install imageio-ffmpeg`
+
+### Pose Model Not Found
+
+If you see `FileNotFoundError` for `pose_landmarker_full.task`:
+- Download the model from [MediaPipe Pose Solutions](https://developers.google.com/mediapipe/solutions/vision/pose_landmarker)
+- Place `pose_landmarker_full.task` in the project root directory
+
+### Video Processing Issues
+
+- **Large video files**: Processing may take significant time and memory. Consider using `MAX_VIDEO_DURATION_LOCAL` in `config.py` to limit processing duration
+- **Webcam not working**: Check that your camera is not being used by another application
+- **Low frame rate**: Ensure your video has a valid FPS (the system defaults to 30 FPS if detection fails)
+
+### Virtual Environment Issues
+
+If packages aren't found after installation:
+- Ensure your virtual environment is activated (you should see `(venv)` in your terminal prompt)
+- Try reinstalling: `pip install --upgrade -r requirements.txt`

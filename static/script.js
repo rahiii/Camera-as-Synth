@@ -254,8 +254,15 @@ async function processSample(filename) {
         const data = await response.json();
         
         if (data.success) {
-            hideProgress();
-            showResult(data.output_id, data.spectrogram_filename, data.message);
+            // Check if job was queued (async processing)
+            if (data.status === 'queued') {
+                // Poll for status
+                pollJobStatus(data.job_id);
+            } else {
+                // Immediate result (synchronous processing)
+                hideProgress();
+                showResult(data.output_id || data.job_id, data.spectrogram_filename, data.message);
+            }
         } else {
             hideProgress();
             mainContent.style.display = 'block';
@@ -378,8 +385,15 @@ async function processUpload() {
         const data = await response.json();
         
         if (data.success) {
-            hideProgress();
-            showResult(data.output_id, data.spectrogram_filename, data.message);
+            // Check if job was queued (async processing)
+            if (data.status === 'queued') {
+                // Poll for status
+                pollJobStatus(data.job_id);
+            } else {
+                // Immediate result (synchronous processing)
+                hideProgress();
+                showResult(data.output_id || data.job_id, data.spectrogram_filename, data.message);
+            }
         } else {
             hideProgress();
             mainContent.style.display = 'block';
@@ -452,16 +466,388 @@ function hideProgress() {
     }, 400);
 }
 
+// Poll for job status when using queue system
+async function pollJobStatus(jobId, attempts = 0, maxAttempts = 60) {
+    const progressText = document.getElementById('progress-text');
+    if (progressText) {
+        progressText.textContent = `Processing video... (checking status)`;
+    }
+    
+    if (attempts >= maxAttempts) {
+        hideProgress();
+        const mainContent = document.getElementById('main-content');
+        mainContent.style.display = 'block';
+        mainContent.style.opacity = '1';
+        mainContent.style.transform = 'translateY(0)';
+        document.getElementById('upload-status').textContent = 'Processing timed out. Please check back later.';
+        document.getElementById('upload-status').className = 'status error';
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/status/${jobId}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        
+        if (data.status === 'complete') {
+            hideProgress();
+            showResult(jobId, data.spectrogram_filename || `spectrogram_${jobId}.png`, data.message);
+        } else if (data.status === 'processing') {
+            // Continue polling
+            setTimeout(() => pollJobStatus(jobId, attempts + 1, maxAttempts), 2000); // Check every 2 seconds
+        } else {
+            throw new Error('Unknown status: ' + data.status);
+        }
+    } catch (error) {
+        console.error('Error polling status:', error);
+        // Retry after delay
+        setTimeout(() => pollJobStatus(jobId, attempts + 1, maxAttempts), 2000);
+    }
+}
+
+// Poll for job status when using queue system
+async function pollJobStatus(jobId, attempts = 0, maxAttempts = 60) {
+    const progressText = document.getElementById('progress-text');
+    if (progressText) {
+        progressText.textContent = `Processing video... (checking status ${attempts + 1}/${maxAttempts})`;
+    }
+    
+    if (attempts >= maxAttempts) {
+        hideProgress();
+        const mainContent = document.getElementById('main-content');
+        mainContent.style.display = 'block';
+        mainContent.style.opacity = '1';
+        mainContent.style.transform = 'translateY(0)';
+        document.getElementById('upload-status').textContent = 'Processing timed out. Please check back later.';
+        document.getElementById('upload-status').className = 'status error';
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/status/${jobId}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        
+        if (data.status === 'complete') {
+            hideProgress();
+            // Use video_url if available (from GCS), otherwise use local path
+            if (data.video_url) {
+                showResultWithUrls(jobId, data.video_url, data.spectrogram_url, data.message);
+            } else {
+                showResult(jobId, data.spectrogram_filename || `spectrogram_${jobId}.png`, data.message);
+            }
+        } else if (data.status === 'processing') {
+            // Continue polling
+            setTimeout(() => pollJobStatus(jobId, attempts + 1, maxAttempts), 2000); // Check every 2 seconds
+        } else {
+            throw new Error('Unknown status: ' + data.status);
+        }
+    } catch (error) {
+        console.error('Error polling status:', error);
+        // Retry after delay
+        setTimeout(() => pollJobStatus(jobId, attempts + 1, maxAttempts), 2000);
+    }
+}
+
+// Interactive spectrogram state
+let spectrogramData = null;
+let spectrogramCanvas = null;
+let spectrogramCtx = null;
+let indicatorUpdateFunction = null;
+
+// Color map for spectrogram (viridis-like)
+function getColorForValue(value, min, max) {
+    const normalized = (value - min) / (max - min);
+    // Viridis color map approximation
+    if (normalized < 0.25) {
+        const t = normalized / 0.25;
+        return `rgb(${Math.floor(68 * (1-t))}, ${Math.floor(1 + 83*t)}, ${Math.floor(84 + 102*t)})`;
+    } else if (normalized < 0.5) {
+        const t = (normalized - 0.25) / 0.25;
+        return `rgb(${Math.floor(59 + 42*t)}, ${Math.floor(84 + 60*t)}, ${Math.floor(186 - 38*t)})`;
+    } else if (normalized < 0.75) {
+        const t = (normalized - 0.5) / 0.25;
+        return `rgb(${Math.floor(101 + 54*t)}, ${Math.floor(144 + 50*t)}, ${Math.floor(148 - 50*t)})`;
+    } else {
+        const t = (normalized - 0.75) / 0.25;
+        return `rgb(${Math.floor(155 + 100*t)}, ${Math.floor(194 + 61*t)}, ${Math.floor(98 + 157*t)})`;
+    }
+}
+
+async function loadAndDrawSpectrogram(outputId) {
+    const canvas = document.getElementById('result-spectrogram-canvas');
+    const loading = document.getElementById('spectrogram-loading');
+    const indicator = document.getElementById('spectrogram-indicator');
+    
+    if (!canvas) return;
+    
+    spectrogramCanvas = canvas;
+    spectrogramCtx = canvas.getContext('2d');
+    
+    loading.classList.add('show');
+    
+    try {
+        const response = await fetch(`/spectrogram_data/${outputId}`);
+        if (!response.ok) {
+            throw new Error('Failed to load spectrogram data');
+        }
+        
+        const data = await response.json();
+        spectrogramData = data;
+        
+        // Set canvas size
+        const container = canvas.parentElement;
+        const containerWidth = container.offsetWidth;
+        const aspectRatio = data.shape[0] / data.shape[1];
+        const canvasHeight = containerWidth * aspectRatio;
+        
+        canvas.width = containerWidth;
+        canvas.height = canvasHeight;
+        
+        // Draw spectrogram
+        drawSpectrogram(data);
+        
+        // Setup interactive features
+        setupSpectrogramInteractivity();
+        
+        // Handle window resize
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                if (spectrogramData) {
+                    const container = canvas.parentElement;
+                    const containerWidth = container.offsetWidth;
+                    const aspectRatio = spectrogramData.shape[0] / spectrogramData.shape[1];
+                    const canvasHeight = containerWidth * aspectRatio;
+                    
+                    canvas.width = containerWidth;
+                    canvas.height = canvasHeight;
+                    
+                    drawSpectrogram(spectrogramData);
+                    if (indicatorUpdateFunction) {
+                        indicatorUpdateFunction();
+                    }
+                }
+            }, 250);
+        });
+        
+        loading.classList.remove('show');
+        indicator.style.display = 'block';
+        
+    } catch (error) {
+        console.error('Error loading spectrogram:', error);
+        loading.textContent = 'Spectrogram data not available';
+        // Fallback to PNG if data not available
+        const img = document.createElement('img');
+        img.id = 'result-spectrogram-fallback';
+        img.src = `/spectrogram/${outputId}`;
+        img.style.width = '100%';
+        img.style.height = 'auto';
+        img.style.display = 'block';
+        canvas.parentElement.appendChild(img);
+        canvas.style.display = 'none';
+        loading.classList.remove('show');
+    }
+}
+
+function drawSpectrogram(data) {
+    if (!spectrogramCtx || !data) return;
+    
+    const { data: spectrogram, shape, min, max } = data;
+    const [freqBins, timeFrames] = shape;
+    const canvasWidth = spectrogramCanvas.width;
+    const canvasHeight = spectrogramCanvas.height;
+    
+    const pixelWidth = canvasWidth / timeFrames;
+    const pixelHeight = canvasHeight / freqBins;
+    
+    // Draw background
+    spectrogramCtx.fillStyle = '#000';
+    spectrogramCtx.fillRect(0, 0, canvasWidth, canvasHeight);
+    
+    // Draw spectrogram
+    for (let t = 0; t < timeFrames; t++) {
+        for (let f = 0; f < freqBins; f++) {
+            const value = spectrogram[f][t];
+            const color = getColorForValue(value, min, max);
+            spectrogramCtx.fillStyle = color;
+            spectrogramCtx.fillRect(
+                t * pixelWidth,
+                (freqBins - 1 - f) * pixelHeight, // Flip vertically
+                Math.ceil(pixelWidth),
+                Math.ceil(pixelHeight)
+            );
+        }
+    }
+    
+    // Draw axes labels
+    spectrogramCtx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    spectrogramCtx.font = '12px monospace';
+    spectrogramCtx.fillText('Frequency (bins)', 10, 20);
+    spectrogramCtx.save();
+    spectrogramCtx.translate(15, canvasHeight / 2);
+    spectrogramCtx.rotate(-Math.PI / 2);
+    spectrogramCtx.fillText('Time (frames)', 0, 0);
+    spectrogramCtx.restore();
+}
+
+function setupSpectrogramInteractivity() {
+    const videoElement = document.getElementById('result-video');
+    const indicator = document.getElementById('spectrogram-indicator');
+    const canvas = spectrogramCanvas;
+    
+    if (!videoElement || !indicator || !canvas) return;
+    
+    // Update indicator position based on video playback
+    indicatorUpdateFunction = function() {
+        if (!videoElement || !indicator || !canvas || !spectrogramData) return;
+        
+        const duration = videoElement.duration;
+        const currentTime = videoElement.currentTime || 0;
+        
+        if (duration && duration > 0 && canvas.width > 0) {
+            const progress = Math.min(Math.max(currentTime / duration, 0), 1);
+            const position = progress * canvas.width;
+            indicator.style.left = `${position}px`;
+            indicator.style.top = '0px';
+            indicator.style.height = `${canvas.height}px`;
+            indicator.style.display = 'block';
+        }
+    };
+    
+    // Add video event listeners
+    videoElement.addEventListener('timeupdate', indicatorUpdateFunction);
+    videoElement.addEventListener('seeked', indicatorUpdateFunction);
+    videoElement.addEventListener('loadedmetadata', indicatorUpdateFunction);
+    
+    // Click/drag to scrub
+    let isDragging = false;
+    
+    canvas.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        scrubToPosition(e, canvas, videoElement);
+    });
+    
+    canvas.addEventListener('mousemove', (e) => {
+        if (isDragging) {
+            scrubToPosition(e, canvas, videoElement);
+        }
+    });
+    
+    canvas.addEventListener('mouseup', () => {
+        isDragging = false;
+    });
+    
+    canvas.addEventListener('mouseleave', () => {
+        isDragging = false;
+    });
+    
+    // Touch support
+    canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        isDragging = true;
+        const touch = e.touches[0];
+        scrubToPosition({ clientX: touch.clientX }, canvas, videoElement);
+    });
+    
+    canvas.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        if (isDragging) {
+            const touch = e.touches[0];
+            scrubToPosition({ clientX: touch.clientX }, canvas, videoElement);
+        }
+    });
+    
+    canvas.addEventListener('touchend', () => {
+        isDragging = false;
+    });
+    
+    // Initial update
+    setTimeout(indicatorUpdateFunction, 100);
+}
+
+function scrubToPosition(e, canvas, videoElement) {
+    if (!videoElement || !canvas || !videoElement.duration) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const progress = Math.max(0, Math.min(1, x / canvas.width));
+    const newTime = progress * videoElement.duration;
+    
+    videoElement.currentTime = newTime;
+    if (indicatorUpdateFunction) {
+        indicatorUpdateFunction();
+    }
+}
+
+function showResultWithUrls(outputId, videoUrl, spectrogramUrl, message) {
+    const resultSection = document.getElementById('result-section');
+    const videoElement = document.getElementById('result-video');
+    const downloadLink = document.getElementById('download-link');
+    
+    videoElement.src = videoUrl;
+    
+    downloadLink.href = videoUrl;
+    downloadLink.download = `camera_synth_${outputId}.mp4`;
+    
+    // Display message if provided
+    const messageElement = document.getElementById('result-message');
+    if (message && messageElement) {
+        messageElement.textContent = message;
+        messageElement.style.display = 'block';
+    } else if (messageElement) {
+        messageElement.style.display = 'none';
+    }
+    
+    resultSection.style.display = 'block';
+    resultSection.style.opacity = '0';
+    resultSection.style.transform = 'translateY(50px)';
+    
+    setTimeout(() => {
+        resultSection.style.transition = 'all 0.8s cubic-bezier(0.4, 0, 0.2, 1)';
+        resultSection.style.opacity = '1';
+        resultSection.style.transform = 'translateY(0)';
+    }, 100);
+    
+    // Animate result cards
+    setTimeout(() => {
+        const cards = document.querySelectorAll('.result-card');
+        cards.forEach((card, index) => {
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(30px)';
+            setTimeout(() => {
+                card.style.transition = 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)';
+                card.style.transitionDelay = `${index * 0.1}s`;
+                card.style.opacity = '1';
+                card.style.transform = 'translateY(0)';
+            }, 200);
+        });
+    }, 300);
+    
+    // Load interactive spectrogram
+    setTimeout(() => {
+        loadAndDrawSpectrogram(outputId);
+    }, 500);
+    
+    resultSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function showResult(outputId, spectrogramFilename, message) {
     const resultSection = document.getElementById('result-section');
     const videoElement = document.getElementById('result-video');
-    const spectrogramElement = document.getElementById('result-spectrogram');
     const downloadLink = document.getElementById('download-link');
+    const spectrogramCard = document.querySelector('.spectrogram-result');
     
     videoElement.src = `/video/${outputId}`;
     
-    if (spectrogramFilename) {
-        spectrogramElement.src = `/spectrogram/${outputId}`;
+    // Show spectrogram card by default
+    if (spectrogramCard) {
+        spectrogramCard.style.display = 'block';
     }
     
     downloadLink.href = `/download/${outputId}`;
@@ -500,6 +886,11 @@ function showResult(outputId, spectrogramFilename, message) {
         });
     }, 300);
     
+    // Load interactive spectrogram
+    setTimeout(() => {
+        loadAndDrawSpectrogram(outputId);
+    }, 500);
+    
     resultSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -533,8 +924,48 @@ function resetAndUploadAnother() {
         }
         
         // Reset video and spectrogram
-        document.getElementById('result-video').src = '';
-        document.getElementById('result-spectrogram').src = '';
+        const videoElement = document.getElementById('result-video');
+        const canvas = document.getElementById('result-spectrogram-canvas');
+        const fallbackImg = document.getElementById('result-spectrogram-fallback');
+        const indicator = document.getElementById('spectrogram-indicator');
+        const loading = document.getElementById('spectrogram-loading');
+        
+        if (videoElement) {
+            videoElement.pause();
+            videoElement.src = '';
+            videoElement.load();
+        }
+        
+        // Remove old event listeners
+        if (indicatorUpdateFunction && videoElement) {
+            videoElement.removeEventListener('timeupdate', indicatorUpdateFunction);
+            videoElement.removeEventListener('seeked', indicatorUpdateFunction);
+            videoElement.removeEventListener('loadedmetadata', indicatorUpdateFunction);
+        }
+        
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            canvas.style.display = 'block';
+        }
+        
+        if (fallbackImg) {
+            fallbackImg.remove();
+        }
+        
+        if (indicator) {
+            indicator.style.display = 'none';
+            indicator.style.left = '0px';
+        }
+        
+        if (loading) {
+            loading.classList.remove('show');
+            loading.textContent = 'Loading spectrogram...';
+        }
+        
+        spectrogramData = null;
+        indicatorUpdateFunction = null;
+        
         const messageElement = document.getElementById('result-message');
         if (messageElement) {
             messageElement.textContent = '';
